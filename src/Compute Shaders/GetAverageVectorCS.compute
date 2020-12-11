@@ -1,0 +1,87 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+StructuredBuffer<float2> input;
+RWStructuredBuffer<float2> output;
+groupshared float2 sumXY[64];
+
+[numthreads(64,1,1)]
+void CSMain (
+                uint3 id : SV_DispatchThreadID,
+                uint groupIndex : SV_GroupIndex,
+                uint3 groupThreadID : SV_GroupThreadID,
+                uint3 groupID : SV_GroupID
+            )
+{
+    float2 xyIn = input[id.x];
+    sumXY[groupIndex] = xyIn;
+    
+    GroupMemoryBarrierWithGroupSync();
+
+    float2 me = sumXY[groupIndex];
+    float2 neighbor = sumXY[groupIndex + 1];
+
+    if (0 == (groupIndex & 1))
+    {    
+        sumXY[groupIndex] = me + neighbor;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (0 == (groupIndex & 3))
+    {
+        me = sumXY[groupIndex];
+        neighbor = sumXY[groupIndex + 2];
+
+        sumXY[groupIndex] = me + neighbor;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (0 == (groupIndex & 7))
+    {
+        me = sumXY[groupIndex];
+        neighbor = sumXY[groupIndex + 4];
+
+        sumXY[groupIndex] = me + neighbor;
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+
+    if (0 == (groupIndex & 15))
+    {
+        me = sumXY[groupIndex];
+        neighbor = sumXY[groupIndex + 8];
+
+        sumXY[groupIndex] = me + neighbor;
+    } 
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (0 == (groupIndex & 31))
+    {
+        me = sumXY[groupIndex];
+        neighbor = sumXY[groupIndex + 16];
+
+        sumXY[groupIndex] = me + neighbor;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (0 == (groupIndex & 63))
+    {
+        me = sumXY[groupIndex];
+        neighbor = sumXY[groupIndex + 32];
+        
+        sumXY[groupIndex] = me + neighbor;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (0 == (groupIndex & 63))
+    {
+        output[groupID.x] = sumXY[groupIndex];
+    }           
+}

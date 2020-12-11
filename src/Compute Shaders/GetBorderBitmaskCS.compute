@@ -1,0 +1,81 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> ProvinceMap;
+RWTexture2D<float4> Result;
+
+float w;
+float h;
+
+SamplerState _PointClamp;
+
+[numthreads(32,32,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint type = 0;
+
+    float3 myCol = ProvinceMap[id.xy].rgb;
+
+    //right-up       : 00000001 : 1
+    //right          : 00000010 : 2
+    //right-down     : 00000100 : 4
+    //down           : 00001000 : 8
+    //left-down      : 00010000 : 16
+    //left           : 00100000 : 32
+    //left-up        : 01000000 : 64
+    //up             : 10000000 : 128
+
+    //starting with right-up, go clockwise
+    float2 rightUpUv = float2((id.x + 1) / w, (id.y + 1) / h);
+    float3 rightUpCol = ProvinceMap.SampleLevel(_PointClamp, rightUpUv, 0).rgb;
+
+    float rightUpDelta = length(abs(myCol - rightUpCol));
+    type = rightUpDelta > 0.001 ? type | 1 : type;
+
+    float2 rightUv = float2((id.x + 1) / w, id.y / h);
+    float3 rightCol = ProvinceMap.SampleLevel(_PointClamp, rightUv, 0).rgb;
+
+    float rightDelta = length(abs(myCol - rightCol));
+    type = rightDelta > 0.001 ? type | 2 : type;
+        
+    float2 rightDownUv = float2((id.x + 1) / w, (id.y - 1) / h);
+    float3 rightDownCol = ProvinceMap.SampleLevel(_PointClamp, rightDownUv, 0).rgb;
+
+    float rightDownDelta = length(abs(myCol - rightDownCol));
+    type = rightDownDelta > 0.001 ? type | 4 : type;
+
+    float2 downUv = float2(id.x / w, (id.y - 1) / h);
+    float3 downCol = ProvinceMap.SampleLevel(_PointClamp, downUv, 0).rgb;
+
+    float downDelta = length(abs(myCol - downCol));
+    type = downDelta > 0.001 ? type | 8 : type;
+    
+    float2 leftDownUv = float2((id.x - 1) / w, (id.y - 1) / h);
+    float3 leftDownCol = ProvinceMap.SampleLevel(_PointClamp, leftDownUv, 0).rgb;
+
+    float leftDownDelta = length(abs(myCol - leftDownCol));
+    type = leftDownDelta > 0.001 ? type | 16 : type;
+
+    float2 leftUv = float2((id.x - 1) / w, id.y / h);
+    float3 leftCol = ProvinceMap.SampleLevel(_PointClamp, leftUv, 0).rgb;
+
+    float leftDelta = length(abs(myCol - leftCol));
+    type = leftDelta > 0.001 ? type | 32 : type;
+
+    float2 leftUpUv = float2((id.x - 1) / w, (id.y + 1) / h);
+    float3 leftUpCol = ProvinceMap.SampleLevel(_PointClamp, leftUpUv, 0).rgb;
+
+    float leftUpDelta = length(abs(myCol - leftUpCol));
+    type = leftUpDelta > 0.001 ? type | 64 : type;
+    
+    float2 upUv = float2(id.x / w, (id.y + 1) / h);
+    float3 upCol = ProvinceMap.SampleLevel(_PointClamp, upUv, 0).rgb;
+
+    float upDelta = length(abs(myCol - upCol));
+    type = upDelta > 0.001 ? type | 128 : type;
+
+    float typeToFloat = type / 256.0;
+    Result[id.xy] = float4(myCol.rgb, typeToFloat);
+}

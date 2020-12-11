@@ -1,0 +1,182 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Init
+
+Texture2D<float4> Provinces;
+Texture2D<float4> Lookup;
+Texture2D<float4> Color;
+
+// Create a RenderTexture with enableRandomWrite flag
+Texture2D<float4> In;
+RWTexture2D<float4> Out;
+float w;
+float h;
+float N;
+float StepWidth;
+
+SamplerState _PointClamp;
+SamplerState _LinearRepeat;
+
+[numthreads(32,32,1)]
+void Init (uint3 id : SV_DispatchThreadID)
+{
+    //init (edge detection)
+    //RG for ping-phase 2-vector, BA for pong-phase 2-vector
+    //initialize with (255,255)
+    //then use edge detection to set the seeds
+    float2 init = float2(1.0, 1.0);
+    
+    int i = 1;
+
+    float2 myCoords = Lookup[id.xy].rg * 256.0;
+    float4 myCol = Color[myCoords.xy];
+
+    float2 rightUv = float2((id.x + i) / w, id.y / h);
+    float2 rightCoords = Lookup.SampleLevel(_PointClamp, rightUv, 0).rg * 256.0;
+    float4 rightCol = Color[rightCoords.xy];
+
+    float2 rightUpUv = float2((id.x + i) / w, (id.y + i) / h);
+    float2 rightUpCoords = Lookup.SampleLevel(_PointClamp, rightUpUv, 0).rg * 256.0;
+    float4 rightUpCol = Color[rightUpCoords.xy];
+        
+    float2 rightDownUv = float2((id.x + i) / w, (id.y - i) / h);
+    float2 rightDownCoords = Lookup.SampleLevel(_PointClamp, rightDownUv, 0).rg * 256.0;
+    float4 rightDownCol = Color[rightDownCoords.xy];
+    
+    float2 leftUv = float2((id.x - i) / w, id.y / h);
+    float2 leftCoords = Lookup.SampleLevel(_PointClamp, leftUv, 0).rg * 256.0;
+    float4 leftCol = Color[leftCoords.xy];
+        
+    float2 leftUpUv = float2((id.x - i) / w, (id.y + i) / h);
+    float2 leftUpCoords = Lookup.SampleLevel(_PointClamp, leftUpUv, 0).rg * 256.0;
+    float4 leftUpCol = Color[leftUpCoords.xy];
+    
+    float2 leftDownUv = float2((id.x - i) / w, (id.y - i) / h);
+    float2 leftDownCoords = Lookup.SampleLevel(_PointClamp, leftDownUv, 0).rg * 256.0;
+    float4 leftDownCol = Color[leftDownCoords.xy];
+    
+    float2 upUv = float2(id.x / w, (id.y + i) / h);
+    float2 upCoords = Lookup.SampleLevel(_PointClamp, upUv, 0).rg * 256.0;
+    float4 upCol = Color[upCoords.xy];
+    
+    float2 downUv = float2(id.x / w, (id.y - i) / h);
+    float2 downCoords = Lookup.SampleLevel(_PointClamp, downUv, 0).rg * 256.0;
+    float4 downCol = Color[downCoords.xy];
+
+    float4 avgCol = rightCol + rightUpCol + rightDownCol + leftCol + leftUpCol + leftDownCol + upCol + downCol;
+    avgCol = avgCol / 8;
+    
+    float4 delta = abs(myCol - avgCol);  
+    init -= length(delta) < 0.001 ? 0.0 : 1.0;
+    
+    //Hol' up wait a minute
+    AllMemoryBarrierWithGroupSync();
+
+    //Put a lil' data in it
+    Out[id.xy] = float4(init, init);
+
+}
+
+#pragma kernel JFA
+[numthreads(32,32,1)]
+void JFA (int2 id : SV_DispatchThreadID) 
+{
+
+    int2 neighborOffsets[8];
+    neighborOffsets[0] = int2(-1, 1);
+    neighborOffsets[1] = int2(0, 1);
+    neighborOffsets[2] = int2(1, 1);
+    neighborOffsets[3] = int2(-1, 0);
+    neighborOffsets[4] = int2(1, 0);
+    neighborOffsets[5] = int2(-1, -1);
+    neighborOffsets[6] = int2(0, -1);
+    neighborOffsets[7] = int2(1, -1);
+
+    float4 myInfo = In[id.xy];
+
+    float bestDistance = length(myInfo.rg); //1.4
+
+    float n = 64.0;
+
+    for(int i = 0; i < 8; i++)
+    {
+        float offsetMod = 2.0;
+
+        int2 offset = int2(neighborOffsets[i] * StepWidth); //-16,0
+        float2 offsetNorm = float2(offset.r / n, offset.g / n);//-0.0625,0 (N = 256)
+
+        float2 sampleCoord = id.xy + offset; //x-16,y+0
+
+        float2 neighborUv = float2(sampleCoord.x / w, sampleCoord.y / h); //x-16 / w, y+0 / h
+        float4 neighborSample = In.SampleLevel(_PointClamp, neighborUv, 0); //0,0,0,1
+        
+        float2 neighborData = neighborSample.rg; //0,0
+        float neighborVectorLength = length(neighborSample.rg); //0
+
+        float offsetVectorLength = length(float2(offsetNorm)); //0.0625
+        float dist = neighborVectorLength + offsetVectorLength; //0 + 0.0625 = 0.0625
+
+        bool better = dist < bestDistance ? true : false;
+        bestDistance = better ? dist : bestDistance; //0.0625 < 1.4 ? 0.0625
+        myInfo = better ? float4(neighborData + abs(offsetNorm),0,1) : myInfo; //0.0625 < 1.4 ? (0,0) + abs(-0.0625,0) = 0.0625,0
+    }
+
+    //Hol' up wait a minute
+    AllMemoryBarrierWithGroupSync();
+
+    Out[id.xy] = myInfo;
+
+}
+
+#pragma kernel CSRender
+[numthreads(32, 32, 1)]
+void CSRender(uint3 id : SV_DispatchThreadID)
+{
+    float output = length(In[id.xy].rg);
+    Out[id.xy] = float4(0,0,0,output);
+}
+
+#pragma kernel CSBlur
+[numthreads(32, 32, 1)]
+void CSBlur(uint3 id : SV_DispatchThreadID)
+{
+    int radius = 1;
+    int numNeighbors = radius + radius + 1;
+    numNeighbors *= numNeighbors;
+
+    float4 myCol = In[id.xy];
+
+    for (int j = 1; j <= radius; j++)
+    {
+        int i = j * 2.0;
+
+        float2 rightUpUv = float2((id.x + i) / w, (id.y + i) / h);
+        float4 rightUpCol = In.SampleLevel(_LinearRepeat, rightUpUv, 0);
+
+        float2 rightUv = float2((id.x + i) / w, id.y / h);
+        float4 rightCol = In.SampleLevel(_LinearRepeat, rightUv, 0);
+
+        float2 rightDownUv = float2((id.x + i) / w, (id.y - i) / h);
+        float4 rightDownCol = In.SampleLevel(_LinearRepeat, rightDownUv, 0);
+
+        float2 leftUpUv = float2((id.x - i) / w, (id.y + i) / h);
+        float4 leftUpCol = In.SampleLevel(_LinearRepeat, leftUpUv, 0);
+
+        float2 leftUv = float2((id.x - i) / w, id.y / h);
+        float4 leftCol = In.SampleLevel(_LinearRepeat, leftUv, 0);
+
+        float2 leftDownUv = float2((id.x - i) / w, (id.y - i) / h);
+        float4 leftDownCol = In.SampleLevel(_LinearRepeat, leftDownUv, 0);
+
+        float2 upUv = float2(id.x / w, (id.y + i) / h);
+        float4 upCol = In.SampleLevel(_LinearRepeat, upUv, 0);
+
+        float2 downUv = float2(id.x / w, (id.y - i) / h);
+        float4 downCol = In.SampleLevel(_LinearRepeat, downUv, 0);
+
+        myCol += rightUpCol + rightCol + rightDownCol + leftUpCol + leftCol + leftDownCol + upCol + downCol;
+    }
+
+    myCol /= numNeighbors;
+
+    Out[id.xy] = float4(0,0,0,myCol.a);
+}

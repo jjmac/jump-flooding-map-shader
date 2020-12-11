@@ -1,0 +1,18 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+Texture2D<float4> ProvinceMap;
+Texture2D<float4> LookupMap;
+
+RWTexture2D<float4> Result;
+
+[numthreads(32,32,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    int2 indirectionCoords = LookupMap[id.xy].xy * 256;
+    float4 colToWrite = float4(ProvinceMap[id.xy].rgb, 1);
+
+    Result[indirectionCoords] = colToWrite;
+}

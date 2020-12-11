@@ -1,0 +1,29 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+AppendStructuredBuffer<float2> buffer;
+
+Texture2D<float4> ProvinceMap;
+
+float width;
+float height;
+
+float4 SearchColor;
+
+[numthreads(32,32,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float4 myCol = ProvinceMap[id.xy];
+    float3 delta = abs(myCol.rgb - SearchColor.rgb);
+
+    if (length(delta) < 0.001)
+    {
+        if(myCol.a > 0.001)
+        {
+            float2 result = float2(id.x / width, id.y / height);
+            buffer.Append(result);
+        }
+    }
+}
